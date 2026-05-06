@@ -101,6 +101,8 @@ AUTHOR_MAP = {
     "50561768+zhanggttry@users.noreply.github.com": "zhanggttry",
     "formulahendry@gmail.com": "formulahendry",
     "93757150+bogerman1@users.noreply.github.com": "bogerman1",
+    "ben@digitizer.co.il": "BenKalsky",
+
     # Matrix parity salvage batch (April 2026)
     "sr@samirusani": "samrusani",
     "angelclaw@AngelMacBook.local": "angel12",
