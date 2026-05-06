@@ -20,9 +20,12 @@ OpenRouter variant suffixes (``:free``, ``:extended``, ``:fast``).
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import List, NamedTuple, Optional
 
 from hermes_cli.providers import (
@@ -920,8 +923,12 @@ def switch_model(
     # Override rejection if model is in the user's saved provider config.
     # API /v1/models may not list cloud/aliased models even though the server supports them.
     if not validation.get("accepted"):
-        override = False
-        if user_providers:
+        override = _model_router_catalog_accepts(
+            target_provider,
+            new_model,
+            provider_label,
+        )
+        if not override and user_providers:
             # user_providers is a dict: {provider_slug: config_dict}
             for slug, cfg in user_providers.items():
                 if slug == target_provider:
@@ -1035,6 +1042,130 @@ def switch_model(
 # ---------------------------------------------------------------------------
 # Authenticated providers listing (for /model no-args display)
 # ---------------------------------------------------------------------------
+
+def _load_model_router_picker_catalog() -> dict[str, list[str]]:
+    """Load the shared model-router catalog for the /model picker.
+
+    Hermes can discover far more models than Oz/OpenClaw intentionally exposes.
+    When ``HERMES_MODEL_ROUTER_CATALOG`` points at the shared catalog, use it as
+    the display allowlist so the Telegram picker stays aligned with Oz's curated
+    model menu. Without that env var this is a no-op, keeping upstream Hermes
+    behavior unchanged.
+    """
+    env_path = os.environ.get("HERMES_MODEL_ROUTER_CATALOG", "").strip()
+    if not env_path:
+        return {}
+
+    for path in [Path(env_path).expanduser()]:
+        try:
+            if not path.exists():
+                continue
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            providers = raw.get("providers", {}) if isinstance(raw, dict) else {}
+            if not isinstance(providers, dict):
+                continue
+            catalog: dict[str, list[str]] = {}
+            for provider_id, models in providers.items():
+                if not isinstance(provider_id, str) or not isinstance(models, dict):
+                    continue
+                model_ids = [
+                    mid for mid in models.keys()
+                    if isinstance(mid, str) and mid and not mid.startswith("_")
+                ]
+                if model_ids:
+                    catalog[provider_id] = model_ids
+            if catalog:
+                return catalog
+        except Exception as exc:
+            logger.debug("Failed to load model-router picker catalog from %s: %s", path, exc)
+    return {}
+
+
+def _catalog_key_for_provider_id(provider: str, provider_label: str = "") -> str:
+    """Map runtime provider IDs to shared model-router provider IDs."""
+    slug = str(provider or "").strip().lower()
+    label = str(provider_label or "").strip().lower()
+    if slug in {"copilot", "github-copilot"}:
+        return "github-copilot"
+    if slug in {"gemini", "google"}:
+        return "google"
+    if slug == "custom:ollama-local" or label == "ollama local":
+        return "ollama"
+    return slug
+
+
+def _catalog_provider_key_for_picker_row(row: dict) -> str:
+    """Map Hermes picker row slugs to shared model-router provider IDs."""
+    return _catalog_key_for_provider_id(
+        str(row.get("slug", "") or ""),
+        str(row.get("name", "") or ""),
+    )
+
+
+def _model_router_catalog_accepts(provider: str, model: str, provider_label: str = "") -> bool:
+    """Return True if the shared catalog explicitly allows provider/model."""
+    catalog = _load_model_router_picker_catalog()
+    if not catalog:
+        return False
+    key = _catalog_key_for_provider_id(provider, provider_label)
+    allowed = catalog.get(key) or []
+    if model in allowed:
+        return True
+    # Accept prefixed input (e.g. ``deepseek/deepseek-chat``) when the catalog
+    # stores provider-local model IDs.
+    prefix = f"{key}/"
+    if model.startswith(prefix) and model[len(prefix):] in allowed:
+        return True
+    return False
+
+
+def _align_picker_results_with_model_router_catalog(
+    results: List[dict],
+    *,
+    max_models: int,
+) -> List[dict]:
+    """Filter/count picker rows using the shared model-router catalog.
+
+    Preserve Hermes's existing switchable row slugs (e.g. ``copilot`` and a
+    custom Ollama endpoint), but display only models approved in the shared
+    catalog. This keeps Telegram /model aligned with Oz without breaking the
+    callback path that performs the actual provider switch.
+    """
+    catalog = _load_model_router_picker_catalog()
+    if not catalog:
+        return results
+
+    aligned: List[dict] = []
+    emitted: set[str] = set()
+    label_overrides = {
+        "github-copilot": "GitHub Copilot",
+        "google": "Google",
+        "openai-codex": "OpenAI Codex",
+        "xai": "xAI",
+        "ollama": "Ollama Local",
+    }
+
+    limit = max(0, max_models) if max_models is not None else 0
+    for row in results:
+        key = _catalog_provider_key_for_picker_row(row)
+        model_ids = catalog.get(key)
+        if not model_ids:
+            if row.get("is_user_defined"):
+                aligned.append(row)
+            continue
+        if key in emitted:
+            continue
+        updated = dict(row)
+        updated["name"] = label_overrides.get(key, updated.get("name") or key)
+        updated["models"] = model_ids[:limit] if limit else []
+        updated["total_models"] = len(model_ids)
+        updated["source"] = "model-router-catalog"
+        updated["catalog_provider"] = key
+        aligned.append(updated)
+        emitted.add(key)
+
+    return aligned or results
+
 
 def list_authenticated_providers(
     current_provider: str = "",
@@ -1705,6 +1836,8 @@ def list_picker_providers(
     - Provider rows whose model list ends up empty are dropped, except
       custom endpoints (``is_user_defined=True`` with an ``api_url``) where
       the user may supply their own model set through config.
+    - When ``HERMES_MODEL_ROUTER_CATALOG`` is set, the final picker rows are
+      aligned to the shared model-router catalog.
 
     All other providers and metadata fields are passed through unchanged.
     The typed ``/model <name>`` path is unaffected -- only the interactive
@@ -1738,4 +1871,7 @@ def list_picker_providers(
             continue
         filtered.append(p)
 
-    return filtered
+    return _align_picker_results_with_model_router_catalog(
+        filtered,
+        max_models=max_models,
+    )
