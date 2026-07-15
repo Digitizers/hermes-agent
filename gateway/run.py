@@ -12503,7 +12503,6 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                                     model=_hyg_model,
                                     max_iterations=4,
                                     quiet_mode=True,
-                                    skip_memory=True,
                                     enabled_toolsets=["memory"],
                                     session_id=session_entry.session_id,
                                     session_db=_hyg_session_db,
@@ -17272,6 +17271,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         ("compression", "target_ratio"),
         ("compression", "protect_last_n"),
         ("agent", "disabled_toolsets"),
+        ("memory", "memory_enabled"),
+        ("memory", "user_profile_enabled"),
         ("memory", "provider"),
     )
 

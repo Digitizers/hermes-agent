@@ -33,6 +33,9 @@ def _make_agent(session_db=None, prebuilt_prompt: str = "BUILT_PROMPT"):
     agent.platform = "cli"
     agent._session_db = session_db
     agent._build_system_prompt = MagicMock(return_value=prebuilt_prompt)
+    agent._memory_store = None
+    agent._memory_enabled = False
+    agent._user_profile_enabled = False
     return agent
 
 
@@ -108,6 +111,41 @@ class TestStoredPromptReuse:
             agent.session_id, agent._cached_system_prompt
         )
         assert any("stale runtime identity" in r.getMessage() for r in caplog.records)
+
+    def test_present_row_missing_enabled_user_profile_rebuilds(self, caplog):
+        """Compression helper prompts must not permanently drop USER.md."""
+        stored = (
+            "You are Hermes Agent.\n\n"
+            "Conversation started: Tuesday, June 16, 2026\n"
+            "Session ID: test-session-id\n"
+            "Model: test-model\n"
+            "Provider: openrouter"
+        )
+        rebuilt = (
+            stored
+            + "\n\nUSER PROFILE (who the user is) [10% — 14/1375 chars]\nName: בן"
+        )
+        db = MagicMock()
+        db.get_session.return_value = {"system_prompt": stored}
+        agent = _make_agent(session_db=db, prebuilt_prompt=rebuilt)
+        agent._user_profile_enabled = True
+        agent._memory_store = MagicMock()
+        agent._memory_store.format_for_system_prompt.side_effect = (
+            lambda target: "USER PROFILE (who the user is)\nName: בן"
+            if target == "user"
+            else None
+        )
+
+        with caplog.at_level(logging.WARNING, logger="agent.conversation_loop"):
+            _restore_or_build_system_prompt(agent, None, [{"role": "user", "content": "hi"}])
+
+        assert agent._cached_system_prompt == rebuilt
+        agent._build_system_prompt.assert_called_once_with(None)
+        db.update_system_prompt.assert_called_once_with(agent.session_id, rebuilt)
+        assert any(
+            "missing enabled memory snapshot blocks" in r.getMessage()
+            for r in caplog.records
+        )
 
 
 # ---------------------------------------------------------------------------

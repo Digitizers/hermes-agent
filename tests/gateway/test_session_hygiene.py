@@ -859,6 +859,7 @@ async def test_session_hygiene_forces_in_place_compaction_with_bound_session_db(
         last_instance = None
 
         def __init__(self, **kwargs):
+            self.kwargs = kwargs
             self.model = kwargs.get("model")
             self.session_id = kwargs.get("session_id", "fake-session")
             self._session_db = kwargs.get("session_db")
@@ -949,6 +950,7 @@ async def test_session_hygiene_forces_in_place_compaction_with_bound_session_db(
     assert result == "ok"
     agent = FakeInPlaceCompressAgent.last_instance
     assert agent is not None
+    assert agent.kwargs.get("skip_memory") is not True
     agent.context_compressor.bind_session_state.assert_called_once_with(fake_db, "sess-1")
     # In-place compaction already persisted via archive_and_compact() —
     # rewrite_transcript would replace_messages(active_only=False) and DELETE
