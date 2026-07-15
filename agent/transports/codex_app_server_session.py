@@ -125,6 +125,29 @@ def _coerce_turn_input_text(user_input: Any) -> str:
     return "" if user_input is None else str(user_input)
 
 
+def _with_initial_system_prompt(user_input_text: str, system_prompt: Optional[str]) -> str:
+    """Prepend Hermes' system prompt to the first Codex app-server turn.
+
+    Codex app-server's current ``thread/start`` request does not accept Hermes'
+    compiled system prompt. Without this bridge, native Codex threads see only
+    the cwd and user text, so gateway sessions lose MEMORY.md/USER.md/persona
+    even though Hermes built and persisted the prompt correctly.
+    """
+    prompt = (system_prompt or "").strip()
+    if not prompt:
+        return user_input_text
+    return (
+        "<hermes-system-instructions>\n"
+        f"{prompt}\n"
+        "</hermes-system-instructions>\n\n"
+        "The block above is authoritative system/developer context for this "
+        "Hermes session. Follow it over any conflicting chat history.\n\n"
+        "<user-message>\n"
+        f"{user_input_text}\n"
+        "</user-message>"
+    )
+
+
 # Substrings in codex stderr / JSON-RPC error messages that signal the
 # subprocess died because its OAuth credentials are no longer valid.
 # Kept conservative: we only redirect users to `codex login` when we're
@@ -209,6 +232,7 @@ class CodexAppServerSession:
         on_event: Optional[Callable[[dict], None]] = None,
         request_routing: Optional[_ServerRequestRouting] = None,
         client_factory: Optional[Callable[..., CodexAppServerClient]] = None,
+        system_prompt: Optional[str] = None,
     ) -> None:
         self._cwd = cwd or os.getcwd()
         self._codex_bin = codex_bin
@@ -223,6 +247,8 @@ class CodexAppServerSession:
         self._on_event = on_event  # Display hook (kawaii spinner ticks etc.)
         self._routing = request_routing or _ServerRequestRouting()
         self._client_factory = client_factory or CodexAppServerClient
+        self._initial_system_prompt = system_prompt or ""
+        self._initial_system_prompt_sent = False
 
         self._client: Optional[CodexAppServerClient] = None
         self._thread_id: Optional[str] = None
@@ -404,6 +430,12 @@ class CodexAppServerSession:
         projector = CodexEventProjector()
 
         user_input_text = _coerce_turn_input_text(user_input)
+        if not self._initial_system_prompt_sent:
+            user_input_text = _with_initial_system_prompt(
+                user_input_text,
+                self._initial_system_prompt,
+            )
+            self._initial_system_prompt_sent = True
 
         # Send turn/start with the user input. Text-only for now (codex
         # supports rich content but Hermes' text path is the common case).

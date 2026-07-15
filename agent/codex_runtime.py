@@ -619,6 +619,7 @@ def run_codex_app_server_turn(
     original_user_message: Any,
     messages: List[Dict[str, Any]],
     effective_task_id: str,
+    active_system_prompt: str = "",
     should_review_memory: bool = False,
 ) -> Dict[str, Any]:
     """Codex app-server runtime path. Hands the entire turn to a `codex
@@ -685,6 +686,9 @@ def run_codex_app_server_turn(
                 auto_approve_apply_patch=auto_approve_requests,
             ),
             on_event=make_codex_app_server_event_bridge(agent),
+            system_prompt=active_system_prompt or getattr(
+                agent, "_cached_system_prompt", ""
+            ),
         )
 
     # NOTE: the user message is ALREADY appended to messages by the

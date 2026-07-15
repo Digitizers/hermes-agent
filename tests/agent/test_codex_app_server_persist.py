@@ -76,6 +76,36 @@ def test_codex_success_flushes_and_reports_persisted():
     assert result["agent_persisted"] is True
 
 
+def test_aiagent_forwarder_accepts_active_system_prompt(monkeypatch):
+    """The conversation-loop early return calls the AIAgent method, not the
+    free function directly. Keep its signature in sync with codex_runtime."""
+    seen = {}
+
+    def fake_run(agent, **kwargs):
+        seen.update(kwargs)
+        return {"completed": True, "agent_persisted": True}
+
+    monkeypatch.setattr("agent.codex_runtime.run_codex_app_server_turn", fake_run)
+    agent = AIAgent(
+        api_key="test-key",
+        base_url="https://openrouter.ai/api/v1",
+        quiet_mode=True,
+        skip_context_files=True,
+        skip_memory=True,
+    )
+
+    result = agent._run_codex_app_server_turn(
+        user_message="hi",
+        original_user_message="hi",
+        messages=[{"role": "user", "content": "hi"}],
+        effective_task_id="task-1",
+        active_system_prompt="USER PROFILE\nName: בן",
+    )
+
+    assert result["completed"] is True
+    assert seen["active_system_prompt"] == "USER PROFILE\nName: בן"
+
+
 def test_codex_turn_persists_each_message_exactly_once():
     """The user turn (flushed at turn start) must not be duplicated; the
     projected assistant message must land once.  Uses a real SessionDB and the

@@ -19,6 +19,7 @@ from agent.transports.codex_app_server_session import (
     _ServerRequestRouting,
     _approval_choice_to_codex_decision,
     _coerce_turn_input_text,
+    _with_initial_system_prompt,
 )
 
 
@@ -134,6 +135,12 @@ class TestTurnInputCoercion:
             {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}},
         ])
         assert text == "caption\n\n[image attached]"
+
+    def test_initial_system_prompt_wraps_user_text(self):
+        text = _with_initial_system_prompt("hello", "Name: בן")
+        assert "Name: בן" in text
+        assert "<hermes-system-instructions>" in text
+        assert "<user-message>\nhello\n</user-message>" in text
 
 
 # ---- lifecycle ----
@@ -258,6 +265,31 @@ class TestRunTurn:
         assert isinstance(text, str)
         assert "[Image attached at: /tmp/a.png]" in text
         assert "[image attached]" in text
+
+    def test_system_prompt_is_sent_on_first_turn_only(self):
+        client = FakeClient()
+        client.queue_notification(
+            "turn/completed",
+            threadId="t",
+            turn={"id": "tu1", "status": "completed", "error": None},
+        )
+        client.queue_notification(
+            "turn/completed",
+            threadId="t",
+            turn={"id": "tu2", "status": "completed", "error": None},
+        )
+        s = make_session(client, system_prompt="USER PROFILE\nName: בן")
+
+        first = s.run_turn("first", turn_timeout=2.0)
+        second = s.run_turn("second", turn_timeout=2.0)
+
+        assert first.error is None
+        assert second.error is None
+        turn_starts = [params for method, params in client.requests if method == "turn/start"]
+        assert "USER PROFILE" in turn_starts[0]["input"][0]["text"]
+        assert "Name: בן" in turn_starts[0]["input"][0]["text"]
+        assert "first" in turn_starts[0]["input"][0]["text"]
+        assert turn_starts[1]["input"][0]["text"] == "second"
 
     def test_tool_iteration_counter_ticks(self):
         client = FakeClient()

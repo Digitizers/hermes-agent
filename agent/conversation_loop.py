@@ -715,6 +715,7 @@ def run_conversation(
             original_user_message=original_user_message,
             messages=messages,
             effective_task_id=effective_task_id,
+            active_system_prompt=active_system_prompt or "",
             should_review_memory=_should_review_memory,
         )
 
