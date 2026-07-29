@@ -3891,7 +3891,15 @@ class BasePlatformAdapter(ABC):
         # destination delimiters so nested labels/parentheses are covered.
         i = 0
         while i < len(content):
-            if content[i] != "[" or (i > 0 and content[i - 1] == "!"):
+            bang_is_unescaped = False
+            if i > 0 and content[i - 1] == "!":
+                slash_count = 0
+                slash_pos = i - 2
+                while slash_pos >= 0 and content[slash_pos] == "\\":
+                    slash_count += 1
+                    slash_pos -= 1
+                bang_is_unescaped = slash_count % 2 == 0
+            if content[i] != "[" or bang_is_unescaped:
                 i += 1
                 continue
             label_depth = 1
@@ -3939,14 +3947,14 @@ class BasePlatformAdapter(ABC):
         def _is_protected(pos: int) -> bool:
             return any(s <= pos < e for s, e in protected_spans)
 
-        found: list = []  # (raw_match_text, expanded_path)
+        found: list = []  # (raw_match_text, expanded_path, start, end)
         for match in path_re.finditer(content):
             if _is_protected(match.start()):
                 continue
             raw = match.group(0)
             expanded = os.path.expanduser(raw)
             if os.path.isfile(expanded):
-                found.append((raw, expanded))
+                found.append((raw, expanded, match.start(), match.end()))
             else:
                 # The reply mentions a deliverable-looking path that does not
                 # exist on disk, so it is silently dropped from native delivery.
@@ -3962,17 +3970,20 @@ class BasePlatformAdapter(ABC):
         # Deduplicate by expanded path, preserving discovery order
         seen: set = set()
         unique: list = []
-        for raw, expanded in found:
+        for raw, expanded, start, end in found:
             if expanded not in seen:
                 seen.add(expanded)
-                unique.append((raw, expanded))
+                unique.append((raw, expanded, start, end))
 
-        paths = [expanded for _, expanded in unique]
+        paths = [expanded for _, expanded, _, _ in unique]
 
         cleaned = content
-        if unique:
-            for raw, _exp in unique:
-                cleaned = cleaned.replace(raw, '')
+        if found:
+            # Remove only the unprotected matched occurrences. A global
+            # ``replace`` would also erase the same path inside a protected
+            # Markdown link destination.
+            for _raw, _expanded, start, end in reversed(found):
+                cleaned = cleaned[:start] + cleaned[end:]
             cleaned = re.sub(r'\n{3,}', '\n\n', cleaned).strip()
 
         return paths, cleaned

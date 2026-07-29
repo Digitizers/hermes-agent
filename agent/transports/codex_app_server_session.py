@@ -148,6 +148,21 @@ def _with_initial_system_prompt(user_input_text: str, system_prompt: Optional[st
     )
 
 
+def _with_updated_system_prompt(user_input_text: str, system_prompt: str) -> str:
+    """Carry a changed prompt into an existing Codex thread."""
+    prompt = (system_prompt or "").strip()
+    return (
+        "<hermes-system-instructions-update>\n"
+        f"{prompt}\n"
+        "</hermes-system-instructions-update>\n\n"
+        "Replace the prior Hermes system-instructions snapshot with the block "
+        "above while preserving this thread's conversation history.\n\n"
+        "<user-message>\n"
+        f"{user_input_text}\n"
+        "</user-message>"
+    )
+
+
 # Substrings in codex stderr / JSON-RPC error messages that signal the
 # subprocess died because its OAuth credentials are no longer valid.
 # Kept conservative: we only redirect users to `codex login` when we're
@@ -249,6 +264,7 @@ class CodexAppServerSession:
         self._client_factory = client_factory or CodexAppServerClient
         self._initial_system_prompt = system_prompt or ""
         self._initial_system_prompt_sent = False
+        self._system_prompt_update_pending = False
 
         self._client: Optional[CodexAppServerClient] = None
         self._thread_id: Optional[str] = None
@@ -265,6 +281,16 @@ class CodexAppServerSession:
     def system_prompt(self) -> str:
         """Prompt snapshot bound to this native Codex thread."""
         return self._initial_system_prompt
+
+    def update_system_prompt(self, system_prompt: str) -> bool:
+        """Queue a prompt replacement on the next turn without losing history."""
+        normalized = system_prompt or ""
+        if normalized == self._initial_system_prompt:
+            return False
+        self._initial_system_prompt = normalized
+        self._initial_system_prompt_sent = False
+        self._system_prompt_update_pending = True
+        return True
 
     # ---------- lifecycle ----------
 
@@ -442,10 +468,16 @@ class CodexAppServerSession:
         user_input_text = _coerce_turn_input_text(user_input)
         sending_initial_system_prompt = not self._initial_system_prompt_sent
         if sending_initial_system_prompt:
-            user_input_text = _with_initial_system_prompt(
-                user_input_text,
-                self._initial_system_prompt,
-            )
+            if self._system_prompt_update_pending:
+                user_input_text = _with_updated_system_prompt(
+                    user_input_text,
+                    self._initial_system_prompt,
+                )
+            else:
+                user_input_text = _with_initial_system_prompt(
+                    user_input_text,
+                    self._initial_system_prompt,
+                )
 
         # Send turn/start with the user input. Text-only for now (codex
         # supports rich content but Hermes' text path is the common case).
@@ -463,6 +495,7 @@ class CodexAppServerSession:
                 # the prompt delivered until Codex has accepted the turn, or
                 # the retry would silently lose Hermes' system instructions.
                 self._initial_system_prompt_sent = True
+                self._system_prompt_update_pending = False
         except CodexAppServerError as exc:
             # Classify auth/refresh failures so the user gets a clear
             # `codex login` pointer instead of a raw RPC error string.

@@ -28,8 +28,8 @@ from agent.stream_single_writer import claim_stream_writer, stream_writer_is_cur
 logger = logging.getLogger(__name__)
 
 
-def _retire_codex_session_if_prompt_changed(agent, desired_prompt: str) -> bool:
-    """Retire a reused native thread when its prompt snapshot is stale."""
+def _refresh_codex_session_prompt_if_changed(agent, desired_prompt: str) -> bool:
+    """Refresh a reused native thread's prompt without discarding history."""
     session = getattr(agent, "_codex_session", None)
     if session is None:
         return False
@@ -37,14 +37,13 @@ def _retire_codex_session_if_prompt_changed(agent, desired_prompt: str) -> bool:
     if current_prompt is None or current_prompt == desired_prompt:
         return False
     try:
-        session.close()
+        return bool(session.update_system_prompt(desired_prompt))
     except Exception:
         logger.debug(
-            "codex app-server prompt-change retirement failed",
+            "codex app-server prompt refresh failed",
             exc_info=True,
         )
-    agent._codex_session = None
-    return True
+        return False
 
 
 def _coerce_usage_int(value: Any) -> int:
@@ -658,7 +657,7 @@ def run_codex_app_server_turn(
         or getattr(agent, "_cached_system_prompt", "")
         or ""
     )
-    _retire_codex_session_if_prompt_changed(agent, desired_system_prompt)
+    _refresh_codex_session_prompt_if_changed(agent, desired_system_prompt)
 
     # Lazy session: one CodexAppServerSession per AIAgent instance.
     # Spawned on first turn, reused across turns, closed at AIAgent

@@ -29,7 +29,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from agent.codex_runtime import (
-    _retire_codex_session_if_prompt_changed,
+    _refresh_codex_session_prompt_if_changed,
     run_codex_app_server_turn,
 )
 from agent.conversation_loop import _compose_effective_system_prompt
@@ -127,18 +127,20 @@ def test_codex_effective_prompt_includes_ephemeral_instructions():
     )
 
 
-def test_changed_effective_prompt_retires_reused_codex_session():
+def test_changed_effective_prompt_refreshes_reused_codex_session():
     session = MagicMock()
     session.system_prompt = "old channel instructions"
+    session.update_system_prompt.return_value = True
     agent = SimpleNamespace(_codex_session=session)
 
-    retired = _retire_codex_session_if_prompt_changed(
+    refreshed = _refresh_codex_session_prompt_if_changed(
         agent, "new channel instructions"
     )
 
-    assert retired is True
-    session.close.assert_called_once_with()
-    assert agent._codex_session is None
+    assert refreshed is True
+    session.update_system_prompt.assert_called_once_with("new channel instructions")
+    session.close.assert_not_called()
+    assert agent._codex_session is session
 
 
 def test_unchanged_effective_prompt_keeps_reused_codex_session():
@@ -146,12 +148,12 @@ def test_unchanged_effective_prompt_keeps_reused_codex_session():
     session.system_prompt = "same instructions"
     agent = SimpleNamespace(_codex_session=session)
 
-    retired = _retire_codex_session_if_prompt_changed(
+    refreshed = _refresh_codex_session_prompt_if_changed(
         agent, "same instructions"
     )
 
-    assert retired is False
-    session.close.assert_not_called()
+    assert refreshed is False
+    session.update_system_prompt.assert_not_called()
     assert agent._codex_session is session
 
 

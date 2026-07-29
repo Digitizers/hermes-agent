@@ -317,6 +317,28 @@ class TestMarkdownLinkExclusion:
         assert files == []
         assert cleaned == content
 
+    def test_protected_and_bare_copy_preserves_only_link_destination(self, tmp_path):
+        report = tmp_path / "report.pdf"
+        report.write_bytes(b"%PDF")
+        content = f"See [report]({report}); attached: {report}"
+
+        files, cleaned = BasePlatformAdapter.extract_local_files(content)
+
+        assert files == [str(report)]
+        assert f"[report]({report})" in cleaned
+        assert "attached:" in cleaned
+        assert cleaned.count(str(report)) == 1
+
+    def test_escaped_image_marker_is_an_ordinary_link(self, tmp_path):
+        report = tmp_path / "report.pdf"
+        report.write_bytes(b"%PDF")
+        content = f"Literal image syntax: \\![report]({report})"
+
+        files, cleaned = BasePlatformAdapter.extract_local_files(content)
+
+        assert files == []
+        assert cleaned == content
+
     def test_bare_local_file_path_still_extracts(self, tmp_path):
         report = tmp_path / "report.md"
         report.write_text("# report\n")

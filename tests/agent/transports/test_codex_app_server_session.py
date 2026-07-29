@@ -329,6 +329,32 @@ class TestRunTurn:
         assert "USER PROFILE" in starts[1]["input"][0]["text"]
         assert "second" in starts[1]["input"][0]["text"]
 
+    def test_changed_system_prompt_updates_existing_thread(self):
+        client = FakeClient()
+        client.queue_notification(
+            "turn/completed",
+            threadId="t",
+            turn={"id": "tu1", "status": "completed", "error": None},
+        )
+        client.queue_notification(
+            "turn/completed",
+            threadId="t",
+            turn={"id": "tu2", "status": "completed", "error": None},
+        )
+        s = make_session(client, system_prompt="old instructions")
+
+        first = s.run_turn("first", turn_timeout=2.0)
+        changed = s.update_system_prompt("new instructions")
+        second = s.run_turn("second", turn_timeout=2.0)
+
+        assert first.error is None
+        assert changed is True
+        assert second.error is None
+        starts = [params for method, params in client.requests if method == "turn/start"]
+        assert "<hermes-system-instructions-update>" in starts[1]["input"][0]["text"]
+        assert "new instructions" in starts[1]["input"][0]["text"]
+        assert len([method for method, _ in client.requests if method == "thread/start"]) == 1
+
     def test_tool_iteration_counter_ticks(self):
         client = FakeClient()
         # Two completed exec items + one final agent message
