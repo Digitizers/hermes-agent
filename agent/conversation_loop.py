@@ -350,33 +350,20 @@ def _restore_or_build_system_prompt(agent, system_message, conversation_history)
                 agent.session_id, exc,
             )
 
-    if (
-        stored_prompt
-        and _stored_prompt_matches_runtime(agent, stored_prompt)
-        and _stored_prompt_matches_memory_snapshot(agent, stored_prompt)
-    ):
+    if stored_prompt and _stored_prompt_matches_runtime(agent, stored_prompt):
         # Continuing session — reuse the exact system prompt from the
         # previous turn so the Anthropic cache prefix matches.
         agent._cached_system_prompt = stored_prompt
         return
     if stored_prompt:
-        if not _stored_prompt_matches_runtime(agent, stored_prompt):
-            stored_state = "stale_runtime"
-            logger.info(
-                "Stored system prompt for session %s has stale runtime identity; "
-                "rebuilding for model=%s provider=%s.",
-                agent.session_id,
-                getattr(agent, "model", "") or "",
-                getattr(agent, "provider", "") or "",
-            )
-        else:
-            stored_state = "stale_memory_snapshot"
-            logger.warning(
-                "Stored system prompt for session %s is missing enabled memory "
-                "snapshot blocks; rebuilding from disk so MEMORY.md/USER.md "
-                "remain authoritative after compression.",
-                agent.session_id,
-            )
+        stored_state = "stale_runtime"
+        logger.info(
+            "Stored system prompt for session %s has stale runtime identity; "
+            "rebuilding for model=%s provider=%s.",
+            agent.session_id,
+            getattr(agent, "model", "") or "",
+            getattr(agent, "provider", "") or "",
+        )
 
     if conversation_history and stored_state in ("null", "empty"):
         # Continuing session whose stored prompt is unusable.  The
@@ -458,38 +445,6 @@ def _stored_prompt_matches_runtime(agent, prompt: str) -> bool:
     current_provider = str(getattr(agent, "provider", "") or "").strip()
     if stored_provider and current_provider and stored_provider != current_provider:
         return False
-
-    return True
-
-
-def _stored_prompt_matches_memory_snapshot(agent, prompt: str) -> bool:
-    """Return False when enabled built-in memory blocks vanished from a prompt.
-
-    Gateway hygiene compression uses helper agents and can persist a
-    continuation system prompt before the live user turn. If that helper skips
-    built-in memory, the next real turn would restore a byte-stable prompt that
-    no longer contains MEMORY.md / USER.md. Rebuild in that case; losing the
-    profile is worse than missing one prefix-cache hit.
-    """
-    store = getattr(agent, "_memory_store", None)
-    if store is None:
-        return True
-
-    if getattr(agent, "_memory_enabled", False):
-        try:
-            mem_block = store.format_for_system_prompt("memory")
-        except Exception:
-            mem_block = None
-        if mem_block and "MEMORY (your personal notes)" not in prompt:
-            return False
-
-    if getattr(agent, "_user_profile_enabled", False):
-        try:
-            user_block = store.format_for_system_prompt("user")
-        except Exception:
-            user_block = None
-        if user_block and "USER PROFILE (who the user is)" not in prompt:
-            return False
 
     return True
 
