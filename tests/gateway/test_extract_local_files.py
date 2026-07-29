@@ -287,6 +287,36 @@ class TestMarkdownLinkExclusion:
         assert files == []
         assert cleaned == content
 
+    def test_nested_label_link_target_is_not_extracted(self, tmp_path):
+        report = tmp_path / "report.pdf"
+        report.write_bytes(b"%PDF")
+        content = f"See [the [report]]({report}) before sending."
+
+        files, cleaned = BasePlatformAdapter.extract_local_files(content)
+
+        assert files == []
+        assert cleaned == content
+
+    def test_reference_definition_target_is_not_extracted(self, tmp_path):
+        report = tmp_path / "report.pdf"
+        report.write_bytes(b"%PDF")
+        content = f"See [report][daily].\n\n[daily]: {report}"
+
+        files, cleaned = BasePlatformAdapter.extract_local_files(content)
+
+        assert files == []
+        assert cleaned == content
+
+    def test_reference_definition_angle_target_is_not_extracted(self, tmp_path):
+        report = tmp_path / "report.pdf"
+        report.write_bytes(b"%PDF")
+        content = f"See [report][daily].\n\n[daily]: <{report}>"
+
+        files, cleaned = BasePlatformAdapter.extract_local_files(content)
+
+        assert files == []
+        assert cleaned == content
+
     def test_bare_local_file_path_still_extracts(self, tmp_path):
         report = tmp_path / "report.md"
         report.write_text("# report\n")

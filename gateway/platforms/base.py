@@ -3887,9 +3887,54 @@ class BasePlatformAdapter(ABC):
             protected_spans.append((m.start(), m.end()))
         # Protect ordinary Markdown links, but not image syntax. A local
         # ``![alt](/tmp/image.png)`` is an explicit attachment request and
-        # must still reach native media delivery.
-        for m in re.finditer(r'(?<!!)\[[^\]\n]*\]\(([^)\n]+)\)', content):
-            protected_spans.append((m.start(1), m.end(1)))
+        # must still reach native media delivery. Parse balanced label and
+        # destination delimiters so nested labels/parentheses are covered.
+        i = 0
+        while i < len(content):
+            if content[i] != "[" or (i > 0 and content[i - 1] == "!"):
+                i += 1
+                continue
+            label_depth = 1
+            j = i + 1
+            while j < len(content) and label_depth:
+                if content[j] == "\\":
+                    j += 2
+                    continue
+                if content[j] == "[":
+                    label_depth += 1
+                elif content[j] == "]":
+                    label_depth -= 1
+                j += 1
+            if label_depth or j >= len(content) or content[j] != "(":
+                i += 1
+                continue
+            destination_start = j + 1
+            destination_depth = 1
+            k = destination_start
+            while k < len(content) and destination_depth:
+                if content[k] == "\\":
+                    k += 2
+                    continue
+                if content[k] == "(":
+                    destination_depth += 1
+                elif content[k] == ")":
+                    destination_depth -= 1
+                k += 1
+            if destination_depth == 0:
+                protected_spans.append((destination_start, k - 1))
+                i = k
+            else:
+                i += 1
+
+        # Reference-style definitions carry the destination on a separate
+        # line: ``[report]: /tmp/report.pdf``. Protect either an angle-bracket
+        # destination or the first non-whitespace destination token.
+        reference_definition_re = re.compile(
+            r"(?m)^[ ]{0,3}\[(?:\\.|[^\]\n])+\]:[ \t]*(?:<([^>\n]+)>|(\S+))"
+        )
+        for match in reference_definition_re.finditer(content):
+            group = 1 if match.group(1) is not None else 2
+            protected_spans.append((match.start(group), match.end(group)))
 
         def _is_protected(pos: int) -> bool:
             return any(s <= pos < e for s, e in protected_spans)
