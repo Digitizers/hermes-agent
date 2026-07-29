@@ -54,6 +54,11 @@ class TestBasicDetection:
         assert "/root/screenshots/game.png" not in cleaned
         assert "Here is the screenshot" in cleaned
 
+    def test_markdown_image_target_remains_a_native_attachment(self):
+        paths, cleaned = _extract("Here: ![plot](/tmp/plot.png)")
+        assert paths == ["/tmp/plot.png"]
+        assert "/tmp/plot.png" not in cleaned
+
     def test_tilde_path_image(self):
         paths, cleaned = _extract("Check out ~/photos/cat.jpg for the cat")
         assert paths == ["/home/user/photos/cat.jpg"]

@@ -3885,7 +3885,10 @@ class BasePlatformAdapter(ABC):
             protected_spans.append((m.start(), m.end()))
         for m in re.finditer(r'`[^`\n]+`', content):
             protected_spans.append((m.start(), m.end()))
-        for m in re.finditer(r'!?\[[^\]\n]*\]\(([^)\n]+)\)', content):
+        # Protect ordinary Markdown links, but not image syntax. A local
+        # ``![alt](/tmp/image.png)`` is an explicit attachment request and
+        # must still reach native media delivery.
+        for m in re.finditer(r'(?<!!)\[[^\]\n]*\]\(([^)\n]+)\)', content):
             protected_spans.append((m.start(1), m.end(1)))
 
         def _is_protected(pos: int) -> bool:

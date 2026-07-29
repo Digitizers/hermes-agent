@@ -28,6 +28,25 @@ from agent.stream_single_writer import claim_stream_writer, stream_writer_is_cur
 logger = logging.getLogger(__name__)
 
 
+def _retire_codex_session_if_prompt_changed(agent, desired_prompt: str) -> bool:
+    """Retire a reused native thread when its prompt snapshot is stale."""
+    session = getattr(agent, "_codex_session", None)
+    if session is None:
+        return False
+    current_prompt = getattr(session, "system_prompt", None)
+    if current_prompt is None or current_prompt == desired_prompt:
+        return False
+    try:
+        session.close()
+    except Exception:
+        logger.debug(
+            "codex app-server prompt-change retirement failed",
+            exc_info=True,
+        )
+    agent._codex_session = None
+    return True
+
+
 def _coerce_usage_int(value: Any) -> int:
     if isinstance(value, bool):
         return 0
@@ -634,6 +653,13 @@ def run_codex_app_server_turn(
         _ServerRequestRouting,
     )
 
+    desired_system_prompt = (
+        active_system_prompt
+        or getattr(agent, "_cached_system_prompt", "")
+        or ""
+    )
+    _retire_codex_session_if_prompt_changed(agent, desired_system_prompt)
+
     # Lazy session: one CodexAppServerSession per AIAgent instance.
     # Spawned on first turn, reused across turns, closed at AIAgent
     # shutdown (see _cleanup hook).
@@ -686,9 +712,7 @@ def run_codex_app_server_turn(
                 auto_approve_apply_patch=auto_approve_requests,
             ),
             on_event=make_codex_app_server_event_bridge(agent),
-            system_prompt=active_system_prompt or getattr(
-                agent, "_cached_system_prompt", ""
-            ),
+            system_prompt=desired_system_prompt,
         )
 
     # NOTE: the user message is ALREADY appended to messages by the

@@ -28,7 +28,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from agent.codex_runtime import run_codex_app_server_turn
+from agent.codex_runtime import (
+    _retire_codex_session_if_prompt_changed,
+    run_codex_app_server_turn,
+)
 from agent.conversation_loop import _compose_effective_system_prompt
 from hermes_state import SessionDB
 from run_agent import AIAgent
@@ -51,7 +54,9 @@ def _make_agent(session_db=None, session_id="sess-codex"):
     agent = MagicMock()
     # Pre-seed the session so run_codex_app_server_turn skips the spawn block.
     agent._codex_session = MagicMock()
+    agent._codex_session.system_prompt = ""
     agent._codex_session.run_turn.return_value = _make_turn()
+    agent._cached_system_prompt = ""
     agent.tool_progress_callback = None
     agent._iters_since_skill = 0
     agent._skill_nudge_interval = 0
@@ -122,6 +127,34 @@ def test_codex_effective_prompt_includes_ephemeral_instructions():
     )
 
 
+def test_changed_effective_prompt_retires_reused_codex_session():
+    session = MagicMock()
+    session.system_prompt = "old channel instructions"
+    agent = SimpleNamespace(_codex_session=session)
+
+    retired = _retire_codex_session_if_prompt_changed(
+        agent, "new channel instructions"
+    )
+
+    assert retired is True
+    session.close.assert_called_once_with()
+    assert agent._codex_session is None
+
+
+def test_unchanged_effective_prompt_keeps_reused_codex_session():
+    session = MagicMock()
+    session.system_prompt = "same instructions"
+    agent = SimpleNamespace(_codex_session=session)
+
+    retired = _retire_codex_session_if_prompt_changed(
+        agent, "same instructions"
+    )
+
+    assert retired is False
+    session.close.assert_not_called()
+    assert agent._codex_session is session
+
+
 def test_codex_turn_persists_each_message_exactly_once():
     """The user turn (flushed at turn start) must not be duplicated; the
     projected assistant message must land once.  Uses a real SessionDB and the
@@ -145,6 +178,7 @@ def test_codex_turn_persists_each_message_exactly_once():
         )
         agent._session_db_created = True
         agent._codex_session = MagicMock()
+        agent._codex_session.system_prompt = ""
         agent._codex_session.run_turn.return_value = _make_turn()
         agent.tool_progress_callback = None
 

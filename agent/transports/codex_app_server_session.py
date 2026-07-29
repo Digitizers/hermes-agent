@@ -261,6 +261,11 @@ class CodexAppServerSession:
         self._pending_file_changes: dict[str, str] = {}
         self._closed = False
 
+    @property
+    def system_prompt(self) -> str:
+        """Prompt snapshot bound to this native Codex thread."""
+        return self._initial_system_prompt
+
     # ---------- lifecycle ----------
 
     def ensure_started(self) -> str:
