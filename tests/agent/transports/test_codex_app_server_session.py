@@ -291,6 +291,44 @@ class TestRunTurn:
         assert "first" in turn_starts[0]["input"][0]["text"]
         assert turn_starts[1]["input"][0]["text"] == "second"
 
+    def test_system_prompt_is_retried_when_first_turn_start_fails(self):
+        client = FakeClient()
+        from agent.transports.codex_app_server import CodexAppServerError
+
+        attempts = 0
+
+        def fail_once(method, params):
+            nonlocal attempts
+            if method == "thread/start":
+                return {
+                    "thread": {"id": "t"},
+                    "activePermissionProfile": {"id": "x"},
+                }
+            if method == "turn/start":
+                attempts += 1
+                if attempts == 1:
+                    raise CodexAppServerError(code=-32600, message="bad input")
+                return {"turn": {"id": "tu2"}}
+            return {}
+
+        client._request_handler = fail_once
+        client.queue_notification(
+            "turn/completed",
+            threadId="t",
+            turn={"id": "tu2", "status": "completed", "error": None},
+        )
+        s = make_session(client, system_prompt="USER PROFILE\nName: בן")
+
+        first = s.run_turn("first", turn_timeout=2.0)
+        second = s.run_turn("second", turn_timeout=2.0)
+
+        assert first.error is not None
+        assert second.error is None
+        starts = [params for method, params in client.requests if method == "turn/start"]
+        assert "USER PROFILE" in starts[0]["input"][0]["text"]
+        assert "USER PROFILE" in starts[1]["input"][0]["text"]
+        assert "second" in starts[1]["input"][0]["text"]
+
     def test_tool_iteration_counter_ticks(self):
         client = FakeClient()
         # Two completed exec items + one final agent message

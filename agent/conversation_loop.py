@@ -630,6 +630,15 @@ def _sync_failover_system_message(agent, api_messages, active_system_prompt):
     return sp
 
 
+def _compose_effective_system_prompt(agent, active_system_prompt):
+    """Return the API-call-time system prompt for every runtime path."""
+    effective = active_system_prompt or ""
+    ephemeral = getattr(agent, "ephemeral_system_prompt", None)
+    if ephemeral:
+        effective = (effective + "\n\n" + ephemeral).strip()
+    return effective
+
+
 def run_conversation(
     agent,
     user_message: Any,
@@ -755,12 +764,15 @@ def run_conversation(
     # See agent/transports/codex_app_server_session.py for the adapter
     # and references/codex-app-server-runtime.md for the rationale.
     if agent.api_mode == "codex_app_server":
+        effective_system_prompt = _compose_effective_system_prompt(
+            agent, active_system_prompt
+        )
         return agent._run_codex_app_server_turn(
             user_message=user_message,
             original_user_message=original_user_message,
             messages=messages,
             effective_task_id=effective_task_id,
-            active_system_prompt=active_system_prompt or "",
+            active_system_prompt=effective_system_prompt,
             should_review_memory=_should_review_memory,
         )
 
@@ -1001,9 +1013,9 @@ def run_conversation(
         # every turn.  We send it as a single content string so the
         # bytes are byte-stable across turns and upstream prompt caches
         # stay warm.
-        effective_system = active_system_prompt or ""
-        if agent.ephemeral_system_prompt:
-            effective_system = (effective_system + "\n\n" + agent.ephemeral_system_prompt).strip()
+        effective_system = _compose_effective_system_prompt(
+            agent, active_system_prompt
+        )
         if effective_system:
             api_messages = [{"role": "system", "content": effective_system}] + api_messages
 

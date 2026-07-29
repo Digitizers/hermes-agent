@@ -435,12 +435,12 @@ class CodexAppServerSession:
         projector = CodexEventProjector()
 
         user_input_text = _coerce_turn_input_text(user_input)
-        if not self._initial_system_prompt_sent:
+        sending_initial_system_prompt = not self._initial_system_prompt_sent
+        if sending_initial_system_prompt:
             user_input_text = _with_initial_system_prompt(
                 user_input_text,
                 self._initial_system_prompt,
             )
-            self._initial_system_prompt_sent = True
 
         # Send turn/start with the user input. Text-only for now (codex
         # supports rich content but Hermes' text path is the common case).
@@ -453,6 +453,11 @@ class CodexAppServerSession:
                 },
                 timeout=10,
             )
+            if sending_initial_system_prompt:
+                # A failed turn/start leaves the thread reusable. Do not mark
+                # the prompt delivered until Codex has accepted the turn, or
+                # the retry would silently lose Hermes' system instructions.
+                self._initial_system_prompt_sent = True
         except CodexAppServerError as exc:
             # Classify auth/refresh failures so the user gets a clear
             # `codex login` pointer instead of a raw RPC error string.

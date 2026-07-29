@@ -29,6 +29,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from agent.codex_runtime import run_codex_app_server_turn
+from agent.conversation_loop import _compose_effective_system_prompt
 from hermes_state import SessionDB
 from run_agent import AIAgent
 
@@ -104,6 +105,21 @@ def test_aiagent_forwarder_accepts_active_system_prompt(monkeypatch):
 
     assert result["completed"] is True
     assert seen["active_system_prompt"] == "USER PROFILE\nName: בן"
+
+
+def test_codex_effective_prompt_includes_ephemeral_instructions():
+    agent = SimpleNamespace(
+        ephemeral_system_prompt="CHANNEL INSTRUCTIONS\nReply in Hebrew"
+    )
+
+    effective = _compose_effective_system_prompt(
+        agent, "USER PROFILE\nName: בן"
+    )
+
+    assert effective == (
+        "USER PROFILE\nName: בן\n\n"
+        "CHANNEL INSTRUCTIONS\nReply in Hebrew"
+    )
 
 
 def test_codex_turn_persists_each_message_exactly_once():
