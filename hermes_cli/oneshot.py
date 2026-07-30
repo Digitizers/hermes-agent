@@ -312,6 +312,13 @@ def run_oneshot(
 
     _write_usage_file(usage_file, result)
 
+    if result.get("failed") or result.get("partial") or result.get("completed") is False:
+        real_stderr.write(
+            "hermes -z: agent run did not complete; refusing to emit a partial response.\n"
+        )
+        real_stderr.flush()
+        return 2
+
     # Model text can contain lone UTF-16 surrogates (invalid in UTF-8). Writing
     # those to a real stdout TextIO raises UnicodeEncodeError and aborts with
     # exit 1 after the turn already completed — scrub to U+FFFD first.
@@ -320,15 +327,11 @@ def run_oneshot(
         from agent.message_sanitization import _sanitize_surrogates
 
         response = _sanitize_surrogates(response)
-
     if response:
         real_stdout.write(response)
         if not response.endswith("\n"):
             real_stdout.write("\n")
         real_stdout.flush()
-
-    if (result.get("failed") or result.get("partial")) and not (response or "").strip():
-        return 2
 
     if not (response or "").strip():
         real_stderr.write("hermes -z: no final response was produced; treating the run as failed.\n")
