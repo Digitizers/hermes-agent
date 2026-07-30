@@ -156,6 +156,8 @@ class TestAgentMessageProjection:
                                 "content": ["step 1", "step 2"]}},
         })
         assert r1.messages == []  # reasoning alone produces no message
+        assert r1.final_text is None
+        assert r1.is_activity is True
         # Then the assistant message
         r2 = p.project({
             "method": "item/completed",

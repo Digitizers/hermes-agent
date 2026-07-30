@@ -98,7 +98,10 @@ class CodexEventProjector:
         if item_type == "reasoning":
             self._pending_reasoning.extend(item.get("summary") or [])
             self._pending_reasoning.extend(item.get("content") or [])
-            return ProjectionResult()
+            # Completed reasoning proves that Codex is still advancing the
+            # turn. Keep it out of durable messages/final output, but clear
+            # the post-tool quiet watchdog just like commentary does.
+            return ProjectionResult(is_activity=True)
         if item_type == "commandExecution":
             return self._project_command(item, item_id)
         if item_type == "fileChange":
