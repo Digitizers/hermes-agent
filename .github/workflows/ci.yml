@@ -104,8 +104,10 @@ jobs:
   contributor-check:
     name: Check contributors
     needs: detect
-    if: needs.detect.outputs.python == 'true'
+    if: needs.detect.outputs.python == 'true' || needs.detect.outputs.ci_review == 'true'
     uses: ./.github/workflows/contributor-check.yml
+    with:
+      base_ref: ${{ github.base_ref || 'main' }}
     secrets: inherit
 
   uv-lockfile:
