@@ -1047,10 +1047,8 @@ class TestSessionRetirement:
         r = s.run_turn("hi", turn_timeout=1.0)
         assert r.should_retire is False
 
-    def test_final_agent_message_without_turn_completed_is_recovered(self):
-        """A completed assistant item is still a usable terminal response when
-        codex omits turn/completed and then goes quiet.
-        """
+    def test_final_agent_message_without_turn_completed_fails_closed(self):
+        """Text without turn/completed is not completion evidence."""
         client = FakeClient()
         client.queue_notification(
             "item/completed",
@@ -1065,14 +1063,14 @@ class TestSessionRetirement:
             notification_poll_timeout=0.01,
         )
         assert r.final_text == "done"
-        assert r.interrupted is False
-        assert r.error is None
-        assert r.should_retire is False
+        assert r.interrupted is True
+        assert r.error and "timed out" in r.error
+        assert r.should_retire is True
         assert any(
             msg["role"] == "assistant" and msg.get("content") == "done"
             for msg in r.projected_messages
         )
-        assert not any(method == "turn/interrupt" for method, _ in client.requests)
+        assert any(method == "turn/interrupt" for method, _ in client.requests)
 
     def test_post_tool_quiet_watchdog_trips_and_retires(self):
         client = FakeClient()
@@ -1130,6 +1128,43 @@ class TestSessionRetirement:
         assert r.interrupted is True
         assert r.should_retire is True
         assert r.error and "silent" in r.error
+
+    def test_commentary_then_tool_silence_has_no_final_response(self):
+        """The production failure shape: commentary must not turn an
+        interrupted post-tool run into a successful final response."""
+        client = FakeClient()
+        client.queue_notification(
+            "item/completed",
+            item={
+                "type": "agentMessage", "id": "c1",
+                "phase": "commentary", "text": "checking sources",
+            },
+            threadId="t", turnId="tu1",
+        )
+        client.queue_notification(
+            "item/completed",
+            item={
+                "type": "commandExecution", "id": "ex1",
+                "command": "echo checked", "cwd": "/tmp",
+                "status": "completed", "aggregatedOutput": "checked",
+                "exitCode": 0, "commandActions": [],
+            },
+            threadId="t", turnId="tu1",
+        )
+        s = make_session(client)
+        r = s.run_turn(
+            "review", turn_timeout=2.0,
+            notification_poll_timeout=0.01,
+            post_tool_quiet_timeout=0.05,
+        )
+        assert r.interrupted is True
+        assert r.should_retire is True
+        assert r.final_text == ""
+        assert r.error and "silent" in r.error
+        assert not any(
+            msg.get("content") == "checking sources"
+            for msg in r.projected_messages
+        )
 
     def test_post_tool_watchdog_resets_on_further_activity(self):
         """A tool completion followed by an agent message should NOT trip

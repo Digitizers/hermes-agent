@@ -1439,7 +1439,7 @@ def test_oneshot_exit_code_when_failed_without_response(monkeypatch):
     assert run_oneshot("hi") == 2
 
 
-def test_oneshot_exit_code_zero_when_failed_with_error_text(monkeypatch, capsys):
+def test_oneshot_fails_closed_when_failed_with_error_text(monkeypatch, capsys):
     from hermes_cli.oneshot import run_oneshot
 
     monkeypatch.setattr(
@@ -1449,8 +1449,26 @@ def test_oneshot_exit_code_zero_when_failed_with_error_text(monkeypatch, capsys)
             {"failed": True, "partial": False},
         ),
     )
-    assert run_oneshot("hi") == 0
-    assert "HTTP 404" in capsys.readouterr().out
+    assert run_oneshot("hi") == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "did not complete" in captured.err
+
+
+def test_oneshot_fails_closed_on_partial_with_commentary(monkeypatch, capsys):
+    from hermes_cli.oneshot import run_oneshot
+
+    monkeypatch.setattr(
+        "hermes_cli.oneshot._run_agent",
+        lambda *_a, **_k: (
+            "I am still checking the sources.",
+            {"failed": False, "partial": True, "completed": False},
+        ),
+    )
+    assert run_oneshot("hi") == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "did not complete" in captured.err
 
 
 def test_oneshot_reraises_keyboard_interrupt(monkeypatch):
