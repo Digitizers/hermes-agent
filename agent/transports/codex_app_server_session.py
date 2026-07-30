@@ -714,7 +714,11 @@ class CodexAppServerSession:
                 # Any non-tool projected activity (assistant message,
                 # status update, etc.) means codex is still producing
                 # output — clear the quiet timer so we don't fast-fail.
-                if projection.messages or projection.final_text is not None:
+                if (
+                    projection.messages
+                    or projection.final_text is not None
+                    or projection.is_activity
+                ):
                     last_tool_completion_at = None
             if projection.final_text is not None:
                 # Codex can emit multiple agentMessage items in one turn
@@ -756,19 +760,6 @@ class CodexAppServerSession:
                             result.error = self._format_error_with_stderr(
                                 f"turn ended status={turn_status}", err_msg
                             )
-
-        if (
-            not turn_complete
-            and not result.interrupted
-            and result.final_text
-            and result.error is None
-        ):
-            logger.warning(
-                "codex app-server turn reached deadline after a completed "
-                "assistant message but before turn/completed; accepting "
-                "the assistant text as the terminal response"
-            )
-            turn_complete = True
 
         if not turn_complete and not result.interrupted:
             # Hit the deadline. Issue interrupt to stop wasted compute, and

@@ -64,6 +64,7 @@ class ProjectionResult:
     messages: list[dict] = field(default_factory=list)
     is_tool_iteration: bool = False
     final_text: Optional[str] = None  # Set when an agentMessage completes
+    is_activity: bool = False
 
 
 class CodexEventProjector:
@@ -118,11 +119,22 @@ class CodexEventProjector:
 
     def _project_agent_message(self, item: dict) -> ProjectionResult:
         text = item.get("text") or ""
+        raw_phase = item.get("phase")
+        phase = raw_phase.strip().lower() if isinstance(raw_phase, str) else None
+        # Commentary/analysis is display-only mid-turn activity. It must not
+        # become a durable assistant message (which can violate message
+        # alternation on resume) and must never satisfy the final-response
+        # contract. The session still receives is_activity=True so a genuine
+        # progress message clears the post-tool silence watchdog.
+        if phase in {"commentary", "analysis"}:
+            return ProjectionResult(is_activity=True)
         msg: dict[str, Any] = {"role": "assistant", "content": text}
         if self._pending_reasoning:
             msg["reasoning"] = "\n".join(self._pending_reasoning)
             self._pending_reasoning = []
-        return ProjectionResult(messages=[msg], final_text=text)
+        # Older Codex builds omit phase on terminal messages, so an absent
+        # phase remains backward-compatible and is treated as final-capable.
+        return ProjectionResult(messages=[msg], final_text=text, is_activity=True)
 
     def _project_user_message(self, item: dict) -> ProjectionResult:
         # codex's userMessage content is a list of UserInput variants. For
