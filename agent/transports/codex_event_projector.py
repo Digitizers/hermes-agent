@@ -48,7 +48,16 @@ class CodexEventProjector:
 
     def project(self, notification: dict) -> ProjectionResult:
         """Project one notification; only ``item/completed`` materializes messages (deltas are display-only)."""
-        if notification.get("method", "") != "item/completed":
+        method = notification.get("method", "")
+        if method in {
+            "item/agentMessage/delta",
+            "item/reasoning/delta",
+            "item/reasoning/summaryDelta",
+        }:
+            # Streaming text/reasoning proves the turn is advancing even though
+            # only item/completed may materialize a durable message.
+            return ProjectionResult(is_activity=True)
+        if method != "item/completed":
             return ProjectionResult()
         item = (notification.get("params", {}) or {}).get("item") or {}
         item_type = item.get("type") or ""
