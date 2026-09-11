@@ -86,6 +86,15 @@ def test_contributor_audit_reads_mailmap_normalized_commit_authors(monkeypatch):
     assert "%ae" not in calls[0][2]
 
 
+def test_raw_coauthor_alias_resolves_through_mailmap():
+    # Git does not rewrite Co-authored-by trailers in %b. The resolver must
+    # canonicalize their raw identity explicitly before consulting AUTHOR_MAP.
+    assert (
+        release.resolve_author("Agent", "agent@Agents-Mac-mini.local")
+        == "@momomojo"
+    )
+
+
 
 
 # ── add_contributor.py CLI behavior ───────────────────────────────────

@@ -2233,7 +2233,8 @@ def update_version_files(semver: str, calver_date: str):
 
 def resolve_author(name: str, email: str) -> str:
     """Resolve a git author to a GitHub @mention."""
-    # Try email lookup first
+    # Try the literal address first. Co-authored-by trailers are plain commit
+    # message text, so unlike %aN/%aE Git does not mailmap them automatically.
     gh_user = AUTHOR_MAP.get(email)
     if gh_user:
         return f"@{gh_user}"
@@ -2247,6 +2248,24 @@ def resolve_author(name: str, email: str) -> str:
     noreply_match2 = re.match(r"(.+)@users\.noreply\.github\.com", email)
     if noreply_match2:
         return f"@{noreply_match2.group(1)}"
+
+    # Apply the repository mailmap to raw trailer identities as a fallback.
+    # `git check-mailmap` also returns unchanged contacts, so only retry the
+    # lookup when it actually canonicalized the name or address.
+    canonical = git("check-mailmap", f"{name} <{email}>")
+    canonical_match = re.fullmatch(r"(.*) <([^<>]+)>", canonical)
+    if canonical_match:
+        canonical_name, canonical_email = canonical_match.groups()
+        if (canonical_name, canonical_email) != (name, email):
+            gh_user = AUTHOR_MAP.get(canonical_email)
+            if gh_user:
+                return f"@{gh_user}"
+            canonical_noreply = re.match(
+                r"(?:\d+\+)?(.+)@users\.noreply\.github\.com", canonical_email
+            )
+            if canonical_noreply:
+                return f"@{canonical_noreply.group(1)}"
+            return canonical_name
 
     # Fallback to git name
     return name
