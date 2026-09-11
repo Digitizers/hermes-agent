@@ -239,7 +239,12 @@ def run_oneshot(
 
     _write_usage_file(usage_file, result)
 
-    if result.get("failed") or result.get("partial") or result.get("completed") is False:
+    if (
+        result.get("failed")
+        or result.get("partial")
+        or result.get("interrupted")
+        or result.get("completed") is False
+    ):
         real_stderr.write(
             "hermes -z: agent run did not complete; refusing to emit a partial response.\n"
         )
