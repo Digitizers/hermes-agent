@@ -116,6 +116,21 @@ class TestAgentMessageProjection:
         assert r.final_text == "hi there"
         assert r.messages == [{"role": "assistant", "content": "hi there"}]
         assert r.is_tool_iteration is False
+        assert r.is_activity is True
+
+    @pytest.mark.parametrize("phase", ["commentary", "analysis"])
+    def test_interim_phase_is_activity_but_never_final(self, phase: str) -> None:
+        p = CodexEventProjector()
+        r = p.project({
+            "method": "item/completed",
+            "params": {"item": {
+                "type": "agentMessage", "id": "interim",
+                "phase": phase, "text": "still working",
+            }},
+        })
+        assert r.messages == []
+        assert r.final_text is None
+        assert r.is_activity is True
 
     def test_pending_reasoning_attaches_to_next_assistant_message(self) -> None:
         p = CodexEventProjector()
@@ -127,6 +142,7 @@ class TestAgentMessageProjection:
                                 "content": ["step 1", "step 2"]}},
         })
         assert r1.messages == []  # reasoning alone produces no message
+        assert r1.is_activity is True
         # Then the assistant message
         r2 = p.project({
             "method": "item/completed",

@@ -37,6 +37,7 @@ class ProjectionResult:
     messages: list[dict] = field(default_factory=list)
     is_tool_iteration: bool = False
     final_text: Optional[str] = None  # Set when an agentMessage completes
+    is_activity: bool = False
 
 
 class CodexEventProjector:
@@ -66,7 +67,7 @@ class CodexEventProjector:
         if item_type == "reasoning":
             self._pending_reasoning.extend(item.get("summary") or [])
             self._pending_reasoning.extend(item.get("content") or [])
-            return ProjectionResult()
+            return ProjectionResult(is_activity=True)
         if item_type == "userMessage":
             return self._project_user_message(item)
         tool_projection = self._TOOL_PROJECTIONS.get(item_type)
@@ -84,7 +85,15 @@ class CodexEventProjector:
 
     def _project_agent_message(self, item: dict) -> ProjectionResult:
         text = item.get("text") or ""
-        return ProjectionResult(messages=[self._assistant_message(text)], final_text=text)
+        raw_phase = item.get("phase")
+        phase = raw_phase.strip().lower() if isinstance(raw_phase, str) else None
+        if phase in {"commentary", "analysis"}:
+            return ProjectionResult(is_activity=True)
+        return ProjectionResult(
+            messages=[self._assistant_message(text)],
+            final_text=text,
+            is_activity=True,
+        )
 
     @staticmethod
     def _project_user_message(item: dict) -> ProjectionResult:

@@ -400,7 +400,11 @@ class CodexAppServerSession:
             projection, aborted = self._absorb_notification(result, projector, note)
             if projection.is_tool_iteration:
                 last_tool_completion_at = time.monotonic()
-            elif projection.messages or projection.final_text is not None:
+            elif (
+                projection.messages
+                or projection.final_text is not None
+                or projection.is_activity
+            ):
                 last_tool_completion_at = None
             if method != "turn/completed":
                 return aborted
