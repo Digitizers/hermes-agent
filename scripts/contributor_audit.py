@@ -183,7 +183,7 @@ def collect_commit_authors(since_tag, until="HEAD"):
     range_spec = f"{since_tag}..{until}"
     log = git(
         "log", range_spec,
-        "--format=%H|%an|%ae|%s",
+        "--format=%H|%aN|%aE|%s",
         "--no-merges",
     )
 
@@ -446,7 +446,7 @@ def main():
             # Only flag emails from commits after diff_base
             new_commits_output = git(
                 "log", f"{args.diff_base}..HEAD",
-                "--format=%ae", "--no-merges",
+                "--format=%aE", "--no-merges",
             )
             new_emails = set(new_commits_output.splitlines()) if new_commits_output else set()
             for email, name in all_unknowns.items():

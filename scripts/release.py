@@ -2327,11 +2327,11 @@ def get_commits(since_tag=None):
     else:
         range_spec = "HEAD"
 
-    # Format: hash<US>author_name<US>author_email<US>subject\0body
+    # Format: hash<US>mailmap_name<US>mailmap_email<US>subject\0body
     # Using %x1f (unit separator) to avoid conflict with | in author names
     log = git(
         "log", range_spec,
-        "--format=%H%x1f%an%x1f%ae%x1f%s%x00%b%x00",
+        "--format=%H%x1f%aN%x1f%aE%x1f%s%x00%b%x00",
         "--no-merges",
     )
 

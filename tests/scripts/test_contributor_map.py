@@ -18,6 +18,7 @@ SCRIPTS_DIR = REPO_ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 import release  # noqa: E402
+import contributor_audit  # noqa: E402
 from add_contributor import add_contributor, read_mapping_file  # noqa: E402
 
 
@@ -44,6 +45,45 @@ def test_effective_map_merges_legacy_and_directory():
     )
     for email, login in release._load_contributor_dir().items():
         assert release.AUTHOR_MAP[email] == login
+
+
+def test_release_reads_mailmap_normalized_commit_authors(monkeypatch):
+    calls = []
+
+    def fake_git(*args, **_kwargs):
+        calls.append(args)
+        return "deadbeef\x1fCanonical Name\x1fcanonical@example.com\x1ffix: example\x00\x00"
+
+    monkeypatch.setattr(release, "git", fake_git)
+    monkeypatch.setitem(release.AUTHOR_MAP, "canonical@example.com", "canonical-user")
+
+    commits = release.get_commits("v1.0.0")
+
+    assert commits[0]["github_author"] == "@canonical-user"
+    assert "%aN" in calls[0][2]
+    assert "%aE" in calls[0][2]
+    assert "%an" not in calls[0][2]
+    assert "%ae" not in calls[0][2]
+
+
+def test_contributor_audit_reads_mailmap_normalized_commit_authors(monkeypatch):
+    calls = []
+
+    def fake_git(*args, **_kwargs):
+        calls.append(args)
+        return "deadbeef|Canonical Name|canonical@example.com|fix: example"
+
+    monkeypatch.setattr(contributor_audit, "git", fake_git)
+    monkeypatch.setitem(release.AUTHOR_MAP, "canonical@example.com", "canonical-user")
+
+    contributors, unknown_emails = contributor_audit.collect_commit_authors("v1.0.0")
+
+    assert contributors == {"canonical-user": {"commit"}}
+    assert unknown_emails == {}
+    assert "%aN" in calls[0][2]
+    assert "%aE" in calls[0][2]
+    assert "%an" not in calls[0][2]
+    assert "%ae" not in calls[0][2]
 
 
 
