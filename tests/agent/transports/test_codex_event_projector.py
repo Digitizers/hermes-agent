@@ -48,6 +48,7 @@ class TestProjectionInvariants:
     def test_streaming_deltas_dont_materialize(self) -> None:
         p = CodexEventProjector()
         for delta_method in (
+            "item/started",
             "item/commandExecution/outputDelta",
             "item/agentMessage/delta",
             "item/reasoning/delta",
@@ -60,7 +61,7 @@ class TestProjectionInvariants:
             )
             assert r.is_tool_iteration is False
             assert r.final_text is None
-            assert r.is_activity is (delta_method != "item/commandExecution/outputDelta")
+            assert r.is_activity is True
 
     def test_turn_started_and_completed_are_silent(self) -> None:
         p = CodexEventProjector()
