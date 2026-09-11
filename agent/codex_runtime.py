@@ -379,7 +379,7 @@ def _consume_user_interrupt(agent, active: bool = True) -> tuple[bool, Any]:
     return interrupted, message
 
 
-def _ensure_codex_session(agent) -> None:
+def _ensure_codex_session(agent, system_prompt: str = "") -> None:
     """Lazily spawn one CodexAppServerSession per AIAgent (reused across turns, closed by the _cleanup hook)."""
     if getattr(agent, "_codex_session", None) is not None:
         return
@@ -406,7 +406,7 @@ def _ensure_codex_session(agent) -> None:
     agent._codex_session = CodexAppServerSession(
         cwd=getattr(agent, "session_cwd", None) or str(resolve_agent_cwd()), approval_callback=approval_callback,
         request_routing=_ServerRequestRouting(auto_approve_exec=auto_approve_requests, auto_approve_apply_patch=auto_approve_requests),
-        on_event=make_codex_app_server_event_bridge(agent),
+        on_event=make_codex_app_server_event_bridge(agent), system_prompt=system_prompt,
     )
 
 
@@ -468,7 +468,8 @@ def _finish_codex_turn(agent, turn, messages: List[Dict[str, Any]], *, original_
 
 
 def run_codex_app_server_turn(agent, *, user_message: str, original_user_message: Any, messages: List[Dict[str, Any]],
-                              effective_task_id: str, should_review_memory: bool = False) -> Dict[str, Any]:
+                              effective_task_id: str, active_system_prompt: str = "",
+                              should_review_memory: bool = False) -> Dict[str, Any]:
     """Hand the turn to a ``codex app-server`` subprocess and project its events into ``messages``.
     Returns the chat_completions result shape. The user message is ALREADY in ``messages`` — never append it again."""
     # Defense in depth for compression.checkpoint_required: agent init refuses the combination, but
@@ -477,7 +478,13 @@ def run_codex_app_server_turn(agent, *, user_message: str, original_user_message
         from agent.conversation_compression import _checkpoint_blocked
         raise _checkpoint_blocked("codex_app_server owns the authoritative thread and compacts it "
                                   "without a truthful pre-compaction transcript boundary")
-    _ensure_codex_session(agent)
+    desired_system_prompt = active_system_prompt or getattr(agent, "_cached_system_prompt", "") or ""
+    reused_session = getattr(agent, "_codex_session", None) is not None
+    _ensure_codex_session(agent, desired_system_prompt)
+    # A live thread must keep its history across native compaction, but still adopt a
+    # legitimate prompt rebuild (for example a model/cwd switch) on its next turn.
+    if reused_session:
+        agent._codex_session.update_system_prompt(desired_system_prompt)
     try:
         turn = agent._codex_session.run_turn(user_input=user_message)
     except Exception as exc:

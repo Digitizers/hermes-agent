@@ -145,6 +145,18 @@ class _ServerRequestRouting:
     auto_approve_apply_patch: bool = False
 
 
+def _with_system_prompt(user_input_text: str, system_prompt: str, *, update: bool) -> str:
+    """Carry Hermes' compiled prompt over the text-only app-server boundary."""
+    tag = "hermes-system-instructions-update" if update else "hermes-system-instructions"
+    action = "Replace the prior" if update else "Treat the"
+    return (
+        f"<{tag}>\n{system_prompt.strip()}\n</{tag}>\n\n"
+        f"{action} Hermes system-instructions snapshot above as authoritative while "
+        "preserving this thread's conversation history.\n\n"
+        f"<user-message>\n{user_input_text}\n</user-message>"
+    )
+
+
 class CodexAppServerSession:
     """One Codex thread per Hermes session, lifetime owned by AIAgent. Not thread-safe: one caller at a time."""
 
@@ -155,6 +167,7 @@ class CodexAppServerSession:
         on_event: Optional[Callable[[dict], None]] = None,
         request_routing: Optional[_ServerRequestRouting] = None,
         client_factory: Optional[Callable[..., CodexAppServerClient]] = None,
+        system_prompt: str = "",
     ) -> None:
         self._cwd = cwd or os.getcwd()
         self._codex_bin = codex_bin
@@ -166,6 +179,9 @@ class CodexAppServerSession:
         self._on_event = on_event  # Display hook (kawaii spinner ticks etc.)
         self._routing = request_routing or _ServerRequestRouting()
         self._client_factory = client_factory or CodexAppServerClient
+        self._system_prompt = system_prompt or ""
+        self._system_prompt_sent = False
+        self._system_prompt_update_pending = False
 
         self._client: Optional[CodexAppServerClient] = None
         self._thread_id: Optional[str] = None
@@ -176,6 +192,21 @@ class CodexAppServerSession:
         # approval params don't carry the changeset, so this feeds the prompt summary.
         self._pending_file_changes: dict[str, str] = {}
         self._closed = False
+
+    @property
+    def system_prompt(self) -> str:
+        """Prompt snapshot currently bound (or queued) for this native thread."""
+        return self._system_prompt
+
+    def update_system_prompt(self, system_prompt: str) -> bool:
+        """Queue a changed snapshot without retiring the thread and losing context."""
+        normalized = system_prompt or ""
+        if normalized == self._system_prompt:
+            return False
+        self._system_prompt = normalized
+        self._system_prompt_sent = False
+        self._system_prompt_update_pending = self._thread_id is not None
+        return True
 
     def ensure_started(self) -> str:
         """Spawn, handshake, and ``thread/start``; idempotent, returns the codex thread id."""
@@ -343,13 +374,28 @@ class CodexAppServerSession:
             if self._interrupt_event.is_set():
                 result.interrupted = True
             else:
-                result.submitted_user_text = _coerce_turn_input_text(user_input)
+                user_input_text = _coerce_turn_input_text(user_input)
+                sending_system_prompt = not self._system_prompt_sent and (
+                    bool(self._system_prompt) or self._system_prompt_update_pending
+                )
+                result.submitted_user_text = (
+                    _with_system_prompt(
+                        user_input_text, self._system_prompt,
+                        update=self._system_prompt_update_pending,
+                    )
+                    if sending_system_prompt else user_input_text
+                )
                 ts = self._request_for(
                     result, "turn/start",
                     {"threadId": self._thread_id, "input": [{"type": "text", "text": result.submitted_user_text}]},
                     "turn/start",
                 )
                 if ts is not None:
+                    if sending_system_prompt:
+                        # Only consume the snapshot after Codex accepts the turn; a
+                        # failed turn/start must resend it on retry.
+                        self._system_prompt_sent = True
+                        self._system_prompt_update_pending = False
                     self._run_started_turn(result, ts, turn_timeout, notification_poll_timeout, post_tool_quiet_timeout)
         self._interrupt_event.clear()
         return result

@@ -19,6 +19,7 @@ from agent.transports.codex_app_server_session import (
     _ServerRequestRouting,
     _approval_choice_to_codex_decision,
     _coerce_turn_input_text,
+    _with_system_prompt,
 )
 
 
@@ -126,6 +127,13 @@ def make_session(client: FakeClient, **kwargs) -> CodexAppServerSession:
     )
 
 
+def test_system_prompt_wrapper_keeps_prompt_and_user_boundaries():
+    text = _with_system_prompt("hello", "USER PROFILE\nName: Ben", update=False)
+    assert "<hermes-system-instructions>" in text
+    assert "USER PROFILE\nName: Ben" in text
+    assert "<user-message>\nhello\n</user-message>" in text
+
+
 # ---- choice mapping ----
 
 class TestApprovalChoiceMapping:
@@ -186,6 +194,40 @@ class TestLifecycle:
 # ---- turn loop ----
 
 class TestRunTurn:
+    def test_system_prompt_is_sent_once_on_a_reused_thread(self):
+        client = FakeClient()
+        for _ in range(2):
+            client.queue_notification(
+                "turn/completed", threadId="thread-fake-001",
+                turn={"id": "turn-fake-001", "status": "completed", "error": None},
+            )
+        session = make_session(client, system_prompt="USER PROFILE\nName: Ben")
+
+        assert session.run_turn("first", turn_timeout=2.0).error is None
+        assert session.run_turn("second", turn_timeout=2.0).error is None
+
+        starts = [params for method, params in client.requests if method == "turn/start"]
+        assert "USER PROFILE\nName: Ben" in starts[0]["input"][0]["text"]
+        assert starts[1]["input"][0]["text"] == "second"
+        assert len([method for method, _ in client.requests if method == "thread/start"]) == 1
+
+    def test_changed_prompt_updates_without_replacing_the_thread(self):
+        client = FakeClient()
+        for _ in range(2):
+            client.queue_notification(
+                "turn/completed", threadId="thread-fake-001",
+                turn={"id": "turn-fake-001", "status": "completed", "error": None},
+            )
+        session = make_session(client, system_prompt="old snapshot")
+
+        session.run_turn("first", turn_timeout=2.0)
+        assert session.update_system_prompt("new snapshot") is True
+        session.run_turn("second", turn_timeout=2.0)
+
+        starts = [params for method, params in client.requests if method == "turn/start"]
+        assert "<hermes-system-instructions-update>" in starts[1]["input"][0]["text"]
+        assert "new snapshot" in starts[1]["input"][0]["text"]
+        assert len([method for method, _ in client.requests if method == "thread/start"]) == 1
     def test_simple_text_turn_returns_final_message(self):
         client = FakeClient()
         client.queue_notification("turn/started", threadId="t", turn={"id": "tu1"})
@@ -425,6 +467,41 @@ class TestRunTurn:
 
 
 class TestCompactThread:
+    def test_long_thread_keeps_prompt_contract_across_native_compaction(self):
+        client = FakeClient()
+        for index in range(32):
+            client.queue_notification(
+                "turn/completed", threadId="thread-fake-001",
+                turn={"id": "turn-fake-001", "status": "completed", "error": None},
+            )
+        client.queue_notification(
+            "turn/started", threadId="thread-fake-001",
+            turn={"id": "compact-turn"},
+        )
+        client.queue_notification(
+            "item/completed", threadId="thread-fake-001", turnId="compact-turn",
+            item={"type": "contextCompaction", "id": "compact-item"},
+        )
+        client.queue_notification(
+            "turn/completed", threadId="thread-fake-001",
+            turn={"id": "compact-turn", "status": "completed", "error": None},
+        )
+        client.queue_notification(
+            "turn/completed", threadId="thread-fake-001",
+            turn={"id": "turn-fake-001", "status": "completed", "error": None},
+        )
+        session = make_session(client, system_prompt="REMEMBER launch-code-7319")
+
+        for index in range(32):
+            assert session.run_turn(f"historical turn {index}", turn_timeout=2.0).error is None
+        assert session.compact_thread(turn_timeout=2.0).compacted is True
+        assert session.run_turn("what was the launch code?", turn_timeout=2.0).error is None
+
+        starts = [params for method, params in client.requests if method == "turn/start"]
+        assert "REMEMBER launch-code-7319" in starts[0]["input"][0]["text"]
+        assert starts[-1]["input"][0]["text"] == "what was the launch code?"
+        assert len([method for method, _ in client.requests if method == "thread/start"]) == 1
+
     def test_compact_thread_sends_rpc_and_waits_for_completion(self):
         client = FakeClient()
         client.queue_notification(

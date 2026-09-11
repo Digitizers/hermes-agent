@@ -1508,6 +1508,7 @@ def _run_conversation_turn(
         return agent._run_codex_app_server_turn(
             user_message=s.user_message, original_user_message=s.original_user_message,
             messages=s.messages, effective_task_id=s.effective_task_id,
+            active_system_prompt=s.active_system_prompt,
             should_review_memory=s._should_review_memory,
         )
 

@@ -77,6 +77,22 @@ def test_codex_success_flushes_and_reports_persisted():
     assert result["agent_persisted"] is True
 
 
+def test_codex_reused_thread_receives_the_effective_prompt_snapshot():
+    agent = _make_agent(session_db=None)
+    run_codex_app_server_turn(
+        agent,
+        user_message="hello",
+        original_user_message="hello",
+        messages=[{"role": "user", "content": "hello"}],
+        effective_task_id="task-1",
+        active_system_prompt="MEMORY (your personal notes)\nKeep the launch code.",
+    )
+
+    agent._codex_session.update_system_prompt.assert_called_once_with(
+        "MEMORY (your personal notes)\nKeep the launch code."
+    )
+
+
 def test_codex_user_interrupt_is_reported_and_cleared():
     agent = _make_agent(session_db=None)
     turn = _make_turn()
