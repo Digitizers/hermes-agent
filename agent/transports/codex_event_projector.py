@@ -50,6 +50,8 @@ class CodexEventProjector:
         """Project one notification; only ``item/completed`` materializes messages (deltas are display-only)."""
         method = notification.get("method", "")
         if method in {
+            "item/started",
+            "item/commandExecution/outputDelta",
             "item/agentMessage/delta",
             "item/reasoning/delta",
             "item/reasoning/summaryDelta",

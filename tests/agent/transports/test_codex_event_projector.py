@@ -60,7 +60,17 @@ class TestProjectionInvariants:
             )
             assert r.is_tool_iteration is False
             assert r.final_text is None
-            assert r.is_activity is (delta_method != "item/commandExecution/outputDelta")
+            assert r.is_activity is True
+
+    def test_item_started_is_watchdog_activity_without_materializing(self) -> None:
+        r = CodexEventProjector().project({
+            "method": "item/started",
+            "params": {"item": {"type": "commandExecution", "id": "cmd-1"}},
+        })
+        assert r.messages == []
+        assert r.is_tool_iteration is False
+        assert r.final_text is None
+        assert r.is_activity is True
 
     def test_turn_started_and_completed_are_silent(self) -> None:
         p = CodexEventProjector()
