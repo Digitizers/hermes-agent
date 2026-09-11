@@ -209,6 +209,23 @@ class TestRunTurn:
         # turn_id propagated for downstream session-DB linkage
         assert r.turn_id == "turn-fake-001"
 
+    def test_interrupted_completion_rejects_final_message(self):
+        client = FakeClient()
+        client.queue_notification(
+            "item/completed",
+            item={"type": "agentMessage", "id": "m1", "text": "partial answer"},
+            threadId="t", turnId="tu1",
+        )
+        client.queue_notification(
+            "turn/completed",
+            threadId="t",
+            turn={"id": "tu1", "status": "interrupted", "error": None},
+        )
+        r = make_session(client).run_turn("hi", turn_timeout=2.0)
+        assert r.final_text == "partial answer"
+        assert r.interrupted is True
+        assert r.error == "turn interrupted"
+
 
 
     def test_result_records_the_exact_submitted_input(self):
@@ -945,4 +962,3 @@ class TestClassifyOAuthFailure:
         assert _classify_oauth_failure() is None
         assert _classify_oauth_failure("") is None
         assert _classify_oauth_failure("", None) is None  # type: ignore[arg-type]
-

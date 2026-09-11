@@ -410,7 +410,10 @@ class CodexAppServerSession:
                 return aborted
             turn_obj = (note.get("params") or {}).get("turn") or {}
             turn_status = turn_obj.get("status")
-            if turn_status and turn_status not in {"completed", "interrupted"} and turn_obj.get("error"):
+            if turn_status == "interrupted":
+                result.interrupted = True
+                result.error = result.error or "turn interrupted"
+            elif turn_status and turn_status != "completed" and turn_obj.get("error"):
                 err_msg = _format_responses_error(turn_obj["error"], str(turn_status))
                 self._set_classified_error(result, f"turn ended status={turn_status}", err_msg, err_msg)
             return True
