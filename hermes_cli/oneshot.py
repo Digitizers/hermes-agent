@@ -244,6 +244,18 @@ def run_oneshot(
 
     _write_usage_file(usage_file, result)
 
+    if (
+        result.get("failed")
+        or result.get("partial")
+        or result.get("interrupted")
+        or result.get("completed") is False
+    ):
+        real_stderr.write(
+            "hermes -z: agent run did not complete; refusing to emit a partial response.\n"
+        )
+        real_stderr.flush()
+        return 2
+
     if response:
         # Lone UTF-16 surrogates would raise UnicodeEncodeError on a real stdout and abort with
         # exit 1 after the turn already completed — scrub to U+FFFD first.
